@@ -3,4 +3,4 @@ plotly
 pandas
 yfinance
 xlsxwriter
-openpyxl
+openpyxㅣ
