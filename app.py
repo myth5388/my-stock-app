@@ -7,20 +7,24 @@ from openai import OpenAI
 st.set_page_config(page_title="공격적 투자 전략 대시보드", layout="wide")
 st.markdown("""
     <style>
-    html, body, [class*="st-"] { font-size: 1.1rem; }
-    h1 { font-size: 2.5rem !important; }
-    [data-testid="stMetricValue"] { font-size: 2.2rem !important; }
-    .stTable { font-size: 1.2rem !important; }
+    html, body, [class*="st-"] { font-size: 1.15rem; }
+    h1 { font-size: 2.6rem !important; color: #1E3A8A; }
+    [data-testid="stMetricValue"] { font-size: 2.3rem !important; font-weight: bold; }
+    .stTable { font-size: 1.25rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📊 오늘의 경제지표 & AI 포트폴리오 전략")
+st.title("📊 AI 경제지표 분석 & 포트폴리오 전략")
 st.markdown("---")
 
 # 2. 데이터 로드 함수
 @st.cache_data(ttl=3600)
-def get_market_all_data():
-    tickers = {"금리": "^TNX", "환율": "KRW=X", "VIX": "^VIX", "비트코인": "BTC-USD", "나스닥": "^IXIC"}
+def get_market_full_data():
+    # 매크로 지표 및 미국 주요주 리스트
+    tickers = {
+        "금리": "^TNX", "환율": "KRW=X", "VIX": "^VIX", "비트코인": "BTC-USD", "나스닥": "^IXIC",
+        "NVDA": "엔비디아", "TSLA": "테슬라", "AAPL": "애플", "MSFT": "마이크로소프트"
+    }
     current_data = {}
     history_data = pd.DataFrame()
     for name, symbol in tickers.items():
@@ -29,40 +33,24 @@ def get_market_all_data():
         if not hist.empty:
             current_data[name] = hist['Close'].iloc[-1]
             current_data[f"{name}_prev"] = hist['Close'].iloc[-2]
-            history_data[name] = yf.Ticker(symbol).history(period="1mo")['Close']
+            if name in ["금리", "나스닥", "비트코인", "환율"]:
+                history_data[name] = yf.Ticker(symbol).history(period="1mo")['Close']
     return current_data, history_data
 
 with st.spinner('실시간 시장 데이터를 분석 중입니다...'):
-    data, history = get_market_all_data()
+    data, history = get_market_full_data()
 
-# 3. 마켓 스코어 및 비중 산출 로직 (함수화)
-def get_weights_by_score(score):
-    if score >= 80:
-        return {"주식": 75, "가상자산": 20, "현금": 5}, "✅ 적극 매수", "green"
-    elif score >= 50:
-        return {"주식": 50, "가상자산": 10, "현금": 40}, "⚠️ 비중 중립", "orange"
-    else:
-        return {"주식": 20, "가상자산": 5, "현금": 75}, "🚨 위험 관리", "red"
-
+# 3. 마켓 스코어 및 비중 산출 로직
 def calculate_score(tnx, krw, vix):
     score = 100
     if tnx > 4.5: score -= 30
-    elif tnx > 4.0: score -= 15
     if krw > 1450: score -= 40
-    elif krw > 1350: score -= 20
-    if vix > 30: score -= 30
-    elif vix > 20: score -= 10
+    if vix > 25: score -= 25
     return max(0, score)
 
-# 점수 및 전일 대비 변동폭 계산
 current_score = calculate_score(data['금리'], data['환율'], data['VIX'])
 prev_score = calculate_score(data['금리_prev'], data['환율_prev'], data['VIX_prev'])
 score_delta = current_score - prev_score
-
-# 비중 및 비중 변동폭 계산
-current_w, status, color = get_weights_by_score(current_score)
-prev_w, _, _ = get_weights_by_score(prev_score)
-w_delta = {k: current_w[k] - prev_w[k] for k in current_w}
 
 # 4. 상단 지표 레이아웃
 st.subheader("📍 핵심 매크로 지표")
@@ -74,46 +62,58 @@ with m4: st.metric("🪙 비트코인", f"${data['비트코인']:,.0f}", f"${dat
 
 st.divider()
 
-# 5. 메인 분석 화면
+# 5. 미 대장주 급변동 (±2%) 및 국장 영향 분석
+st.subheader("🇺🇸 전일 미 주요주 급변동 및 국장 영향")
+us_stocks = {"AAPL": "애플", "NVDA": "엔비디아", "TSLA": "테슬라", "MSFT": "마이크로소프트"}
+movers_cols = st.columns(len(us_stocks))
+
+for i, (ticker, name) in enumerate(us_stocks.items()):
+    change = ((data[ticker] - data[f"{ticker}_prev"]) / data[f"{ticker}_prev"]) * 100
+    with movers_cols[i]:
+        st.metric(name, f"${data[ticker]:,.1f}", f"{change:.2f}%")
+        if abs(change) >= 2.0:
+            with st.expander("국내 영향 분석"):
+                if ticker == "AAPL": st.write("📱 **LG이노텍, 비에이치** 등 부품주 동조화 예상")
+                elif ticker == "NVDA": st.write("⚙️ **SK하이닉스, 한미반도체** 등 HBM 관련주 강세 가능성")
+                elif ticker == "TSLA": st.write("🔋 **LG엔솔, 에코프로** 등 2차전지 심리적 영향")
+                elif ticker == "MSFT": st.write("☁️ **솔트룩스, 마음AI** 등 AI 소프트웨어주 수급 영향")
+
+st.divider()
+
+# 6. 메인 분석 (좌: 점수/비중, 우: 그래프)
 left, right = st.columns([1, 1.2])
 
+if current_score >= 80:
+    status, color, stock_w, crypto_w, cash_w = "✅ 적극 매수", "green", 75, 20, 5
+elif current_score >= 50:
+    status, color, stock_w, crypto_w, cash_w = "⚠️ 비중 중립", "orange", 50, 10, 40
+else:
+    status, color, stock_w, crypto_w, cash_w = "🚨 위험 관리", "red", 20, 5, 75
+
 with left:
-    st.subheader("🎯 마켓 스코어 리포트")
-    st.metric(label="현재 투자 점수", value=f"{current_score}점", delta=f"{score_delta}점 (전일 대비)")
+    st.subheader("🎯 마켓 익스포저")
+    st.metric("투자 점수", f"{current_score}점", f"{score_delta}점")
     st.markdown(f"### 상태: :{color}[{status}]")
     st.progress(current_score / 100)
     
-    st.markdown("#### 📊 추천 포트폴리오 비중 (변동폭)")
-    w_col1, w_col2, w_col3 = st.columns(3)
-    w_col1.metric("📈 주식", f"{current_w['주식']}%", f"{w_delta['주식']}%")
-    w_col2.metric("🪙 가상자산", f"{current_w['가상자산']}%", f"{w_delta['가상자산']}%")
-    w_col3.metric("💵 현금", f"{current_w['현금']}%", f"{w_delta['현금']}%")
-
-    st.markdown("#### 💡 상세 전략 제안")
-    if current_score >= 80:
-        st.write("· **추천 섹터:** AI 반도체, 나스닥 레버리지, 성장주")
-        st.write("· **주요 종목:** NVDA, TQQQ, BTC")
-    elif current_score >= 50:
-        st.write("· **추천 섹터:** 배당주, 대형 우량주, 리밸런싱")
-        st.write("· **주요 종목:** SCHD, AAPL, BTC")
-    else:
-        st.write("· **추천 섹터:** 초단기 채권, 금(Gold), 현금")
-        st.write("· **주요 종목:** SHV, IAU, 파킹통장")
+    st.markdown("#### 📊 추천 포트폴리오 비중")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("주식", f"{stock_w}%")
+    c2.metric("가상자산", f"{crypto_w}%")
+    c3.metric("현금", f"{cash_w}%")
 
 with right:
-    st.subheader("📈 시장 흐름 시각화")
-    target = st.radio("보고 싶은 그래프", ["나스닥", "금리", "비트코인", "환율"], horizontal=True)
-    st.line_chart(history[target], color="#29b5e8")
+    st.subheader("📈 주요 지표 추이")
+    target = st.radio("그래프 선택", ["나스닥", "금리", "비트코인", "환율"], horizontal=True)
+    st.line_chart(history[target])
 
-# 6. AI 리포트
+# 7. AI 리포트
 st.divider()
 if st.button("🤖 AI 전문가 정밀 분석 리포트 생성", use_container_width=True):
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
-        prompt = f"투자자산운용가로서 리포트 작성. 점수:{current_score}(변동:{score_delta}). 비중변동: 주식({w_delta['주식']}%), 가상자산({w_delta['가상자산']}%), 현금({w_delta['현금']}%). 지표 변화가 왜 이런 비중 조절을 만들었는지 3~4문장으로 단호하게 설명해줘."
-        response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
-        st.success(response.choices.message.content)
+        prompt = f"투자자산운용가로서 미 대장주 변동률과 매크로 지표를 분석해줘. 점수:{current_score}, 환율:{data['환율']:.1f}원. 특히 미국 테크주의 흐름이 오늘 한국 시장에 줄 영향을 포함해 3~4문장으로 요약해줘."
+        res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
+        st.success(res.choices.message.content)
     except:
-        st.error("AI 분석 기능을 사용하려면 Secrets에 API Key를 등록해 주세요.")
-
-st.caption("※ 본 정보는 투자 참고용이며 최종 책임은 본인에게 있습니다.")
+        st.error("AI 기능을 위해 Secrets에 OPENAI_API_KEY를 등록하세요.")
