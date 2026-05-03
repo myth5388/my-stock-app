@@ -4,10 +4,10 @@ import pandas as pd
 from datetime import datetime
 
 # 1. 페이지 설정
-st.set_page_config(page_title="AI 동적 리밸런싱 시스템", layout="wide")
-st.title("📈 AI 동적 리밸런싱 및 투자 전략 (2024-2026)")
+st.set_page_config(page_title="AI 통합 투자 전략 대시보드", layout="wide")
+st.title("📈 2026 AI 동적 리밸런싱 및 통합 전략 (에러 수정본)")
 
-# 2. 투자 설정 및 국면 선택 (사이드바 분석 기능)
+# 2. 투자 설정 및 국면 선택 (사이드바 상세 분석 복구)
 total_budget = 10000000  # 1,000만 원 기준
 st.sidebar.header("🌐 현 시장 국면 분석")
 market_state = st.sidebar.selectbox(
@@ -15,7 +15,7 @@ market_state = st.sidebar.selectbox(
     ["추세 상승기 (Bull)", "추세 하락기 (Bear)", "박스권/횡보분출기 (Sideways)"]
 )
 
-# 국면별 로직 설정 (비중, 손절선, 리스크 관리)
+# 국면별 로직 설정 (비중 및 리스크 관리 상세 복구)
 def get_market_logic(state):
     if "상승기" in state:
         return {"ratios": {"QQQ": 0.45, "IVV": 0.15, "005930.KS": 0.30, "BTC-USD": 0.10},
@@ -31,12 +31,12 @@ logic = get_market_logic(market_state)
 
 st.sidebar.info(f"""
 **[전략 기조: {logic['risk_adj']}]**
-- {logic['desc']}
-- **현금 비중**: {logic['cash_ratio']*100:.0f}% 확보
-- **손절 대응**: {((1-logic['sl_rate'])*100):.0f}% 이내
+- **현 상태**: {logic['desc']}
+- **현금 확보**: {logic['cash_ratio']*100:.0f}% 비중
+- **손절 대응**: 현재가 기준 {(1-logic['sl_rate'])*100:.0f}% 하락 시
 """)
 
-# 3. 데이터 로드 (에러 수정 포인트: .iloc 대신 .iloc[0] 또는 직접 접근)
+# 3. 데이터 로드 (에러 수정: df.iloc['Close'] -> df['Close'].iloc[0])
 @st.cache_data
 def load_full_data():
     symbols = {"나스닥100(QQQ)": "QQQ", "S&P500(IVV)": "IVV", "삼성전자": "005930.KS", "비트코인(BTC)": "BTC-USD"}
@@ -50,22 +50,21 @@ def load_full_data():
 
 assets = load_full_data()
 
-# 4. 자산별 성과 요약 (차트 포함)
-st.header("🔍 자산별 성과 요약")
+# 4. 성과 요약 메트릭 및 차트
+st.header("🔍 자산별 성과 요약 (2024년 이후)")
 cols = st.columns(len(assets))
 for i, (ticker, info) in enumerate(assets.items()):
     df = info['df']
-    # [수정] iloc['Close'] 대신 iloc[0]['Close'] 사용
-    start_p = df['Close'].iloc[0] 
+    start_p = df['Close'].iloc[0]  # 에러 수정 완료
     curr_p = df['Close'].iloc[-1]
     ret = ((curr_p - start_p) / start_p) * 100
     with cols[i]:
         st.metric(info['name'], f"{curr_p:,.2f}", f"{ret:+.2f}%")
         st.line_chart(df['Close'], height=120)
 
-# 5. 통합 리밸런싱 및 상세 매매 전략 (누락 항목 복구)
+# 5. [복구] 통합 리밸런싱 및 상세 매매 전략 테이블 (모든 항목 포함)
 st.divider()
-st.header("🎯 통합 리밸런싱 및 상세 전략")
+st.header("🎯 통합 리밸런싱 및 상세 전략 가이드")
 
 strategy_list = []
 for ticker, info in assets.items():
@@ -73,20 +72,20 @@ for ticker, info in assets.items():
     target_ratio = logic['ratios'].get(ticker, 0)
     target_amt = total_budget * target_ratio
     
-    # 리스크 등급 및 액션 판단
+    # 누락되었던 세부 항목들 복구
     risk_lv = "높음" if "BTC" in ticker or "005930" in ticker else "보통"
     if "IVV" in ticker: risk_lv = "낮음"
     
-    action = "매수 확대" if target_ratio >= 0.3 else ("축소/대기" if target_ratio <= 0.05 else "비중 유지")
-    status = "안전" if curr_p > (curr_p * logic['sl_rate'] * 1.05) else "경계"
+    action = "매수 확대" if target_ratio >= 0.3 else ("비중 축소" if target_ratio <= 0.05 else "비중 유지")
+    status = "안전" if curr_p > (curr_p * logic['sl_rate'] * 1.05) else "경계/손절대응"
 
     strategy_list.append({
         "자산명": info['name'],
         "권장 비중": f"{target_ratio*100:.0f}%",
         "목표 금액": f"{target_amt:,.0f}원",
         "현재가": f"{curr_p:,.2f}",
-        "손절가": f"{curr_p * logic['sl_rate']:,.2f}",
-        "목표가": f"{curr_p * logic['tp_rate']:,.2f}",
+        "손절가(기준)": f"{curr_p * logic['sl_rate']:,.2f}",
+        "목표가(익절)": f"{curr_p * logic['tp_rate']:,.2f}",
         "리스크": risk_lv,
         "상태": status,
         "액션": action
@@ -94,17 +93,19 @@ for ticker, info in assets.items():
 
 st.table(pd.DataFrame(strategy_list))
 
-# 6. 리밸런싱 자산 현황 요약
-c1, c2, c3 = st.columns(3)
-with c1: st.success(f"✅ 투자 집행: {total_budget * (1-logic['cash_ratio']):,.0f}원")
-with c2: st.warning(f"💰 현금 확보: {total_budget * logic['cash_ratio']:,.0f}원")
-with c3: st.info(f"📊 국면: {market_state}")
+# 6. 리밸런싱 자산 배분 현황 요약
+c1, c2 = st.columns(2)
+with c1:
+    st.success(f"✅ **주식/코인 투자 금액**: {total_budget * (1-logic['cash_ratio']):,.0f}원")
+with c2:
+    st.warning(f"💰 **현금 보유 권장 금액**: {total_budget * logic['cash_ratio']:,.0f}원")
 
-with st.expander("💡 2024년 이후 데이터 기반 리밸런싱 가이드"):
+# 7. 실행 가이드
+with st.expander("💡 실전 투자 및 리밸런싱 수칙"):
     st.write(f"""
-    - **하락장 대응**: 2024년 8월 급락 시 '추세 하락기'를 선택했다면 손절선 **-4%**가 작동해 현금을 보존했을 것입니다.
-    - **수익 극대화**: 2025년 삼성전자 상승기엔 '추세 상승기'를 통해 손절선을 **-12%**로 넓혀 수익을 끝까지 가져갔을 것입니다.
-    - **실행**: 현재 내 계좌의 비중이 위 '권장 비중'과 다르다면, 목표 금액에 맞춰 수량을 조절(리밸런싱)하세요.
+    - **하락장 대응**: 2024년 8월 급락 시 '추세 하락기'로 전환했다면 손절선 **-4%**가 작동해 현금을 보존했을 것입니다.
+    - **상승장 추종**: 삼성전자 폭등기엔 '추세 상승기'를 통해 손절선을 **-12%**로 넓게 가져가 수익을 극대화하세요.
+    - **리밸런싱 방법**: 현재 보유 금액이 위 '목표 금액'보다 많다면 매도하여 현금을 확보하고, 적다면 추가 매수하세요.
     """)
 
-st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 모든 에러 수정 및 전략 항목 복구 완료")
+st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 모든 에러 수정 및 세부 전략 항목 복구 완료")
