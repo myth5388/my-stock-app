@@ -5,8 +5,17 @@ from openai import OpenAI
 
 # 1. 앱 페이지 설정
 st.set_page_config(page_title="공격적 투자 전략 대시보드", layout="wide")
+
+# 스타일 커스텀: 가독성을 높이기 위한 CSS
+st.markdown("""
+    <style>
+    .main { background-color: #f8f9fa; }
+    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title("📊 오늘의 경제지표 & AI 포트폴리오 전략")
-st.markdown("실시간 금리, 환율, VIX 및 비트코인을 분석하여 최적의 공격적 비중을 제안합니다.")
+st.markdown("---")
 
 # 2. 데이터 로드 함수 (캐싱 적용)
 @st.cache_data(ttl=3600)
@@ -29,44 +38,10 @@ def get_market_all_data():
             history_data[name] = yf.Ticker(symbol).history(period="1mo")['Close']
     return current_data, history_data
 
-with st.spinner('시장 데이터를 불러오는 중...'):
+with st.spinner('실시간 시장 데이터를 분석 중입니다...'):
     data, history = get_market_all_data()
 
-# 3. 지표 상단 표시 및 영향도 설명
-st.subheader("📍 핵심 지표 실시간 현황")
-col1, col2, col3, col4 = st.columns(4)
-
-with col1:
-    d = data['금리'] - data['금리_prev']
-    st.metric("🇺🇸 미 10년물 금리", f"{data['금리']:.2f}%", f"{d:.2f}%")
-    with st.expander("영향도 보기"):
-        st.write("**상승 시:** 기술주/성장주 하락 압력 증가 📉")
-        st.write("**하락 시:** 유동성 공급으로 지수 상승 호재 📈")
-
-with col2:
-    d = data['환율'] - data['환율_prev']
-    st.metric("💵 원/달러 환율", f"{data['환율']:,.1f}원", f"{d:,.1f}원")
-    with st.expander("영향도 보기"):
-        st.write("**상승 시:** 외국인 자금 이탈, 국장 하락 위험 🚨")
-        st.write("**하락 시:** 외국인 매수 유입, 대형주 호재 ✅")
-
-with col3:
-    d = data['VIX'] - data['VIX_prev']
-    st.metric("📉 VIX 공포지수", f"{data['VIX']:.2f}", f"{d:.2f}")
-    with st.expander("영향도 보기"):
-        st.write("**상승 시:** 시장 불안 증폭, 변동성 매매 유효 ⚡")
-        st.write("**하락 시:** 시장 안정화, 추세 추종 유리 😊")
-
-with col4:
-    d = data['비트코인'] - data['비트코인_prev']
-    st.metric("🪙 비트코인", f"${data['비트코인']:,.0f}", f"${d:,.0f}")
-    with st.expander("영향도 보기"):
-        st.write("**상승 시:** 위험자산 선호(Risk-on) 강화 🚀")
-        st.write("**하락 시:** 유동성 위축 및 투심 악화 🧊")
-
-st.divider()
-
-# 4. 마켓 스코어 및 비중 산출 로직
+# 3. 마켓 스코어 계산 로직 (전일 점수 포함)
 def calculate_score(tnx, krw, vix):
     score = 100
     if tnx > 4.5: score -= 30
@@ -77,61 +52,92 @@ def calculate_score(tnx, krw, vix):
     elif vix > 20: score -= 10
     return max(0, score)
 
-market_score = calculate_score(data['금리'], data['환율'], data['VIX'])
+current_score = calculate_score(data['금리'], data['환율'], data['VIX'])
+prev_score = calculate_score(data['금리_prev'], data['환율_prev'], data['VIX_prev'])
+score_delta = current_score - prev_score
 
-# 비중 결정
-if market_score >= 80:
-    status, status_color = "✅ 적극 매수 구간", "green"
+# 4. 상단 지표 레이아웃 (4분할)
+st.subheader("📍 핵심 매크로 지표")
+m1, m2, m3, m4 = st.columns(4)
+
+with m1:
+    d_tnx = data['금리'] - data['금리_prev']
+    st.metric("🇺🇸 미 10년물 금리", f"{data['금리']:.2f}%", f"{d_tnx:.2f}%")
+with m2:
+    d_krw = data['환율'] - data['환율_prev']
+    st.metric("💵 원/달러 환율", f"{data['환율']:,.1f}원", f"{d_krw:,.1f}원")
+with m3:
+    d_vix = data['VIX'] - data['VIX_prev']
+    st.metric("📉 VIX 공포지수", f"{data['VIX']:.2f}", f"{d_vix:.2f}")
+with m4:
+    d_btc = data['비트코인'] - data['비트코인_prev']
+    st.metric("🪙 비트코인", f"${data['비트코인']:,.0f}", f"${d_btc:,.0f}")
+
+# 각 지표 영향도 안내 (접이식)
+with st.expander("💡 지표 변화가 내 자산에 미치는 영향 확인하기"):
+    c1, c2, c3 = st.columns(3)
+    c1.write("**금리/환율 상승:** 주식 비중 축소 신호 🚨")
+    c2.write("**VIX 하락:** 안정적인 추세 매매 가능 ✅")
+    c3.write("**비트코인 상승:** 위험자산 선호 심리 강화 🚀")
+
+st.markdown("---")
+
+# 5. 메인 분석 섹션 (좌: 스코어/비중, 우: 차트)
+left, right = st.columns([1, 1.2]) # 비율 조절
+
+# 비중 및 상태 결정
+if current_score >= 80:
+    status, color = "✅ 적극 매수", "green"
     weights = {"주식": 75, "가상자산": 20, "현금": 5}
-    advice = "지표가 우호적입니다. 공격적으로 비중을 확대할 적기입니다!"
-elif market_score >= 50:
-    status, status_color = "⚠️ 비중 중립 구간", "orange"
+    advice = "시장 환경이 매우 우호적입니다. 공격적으로 수익을 극대화하세요."
+elif current_score >= 50:
+    status, color = "⚠️ 비중 중립", "orange"
     weights = {"주식": 50, "가상자산": 10, "현금": 40}
-    advice = "일부 지표에 경고등이 켜졌습니다. 무리한 추격 매수보다는 관망이 필요합니다."
+    advice = "일부 지표에 경계 신호가 있습니다. 핵심 우량주 위주로 방어하세요."
 else:
-    status, status_color = "🚨 위험 관리 구간", "red"
+    status, color = "🚨 위험 관리", "red"
     weights = {"주식": 20, "가상자산": 5, "현금": 75}
-    advice = "시장 환경이 매우 악화되었습니다. 현금 비중을 높여 자산을 방어하세요."
-
-# 5. 분석 화면 레이아웃 (TypeError 해결: st.columns(2) 적용)
-left, right = st.columns(2)
+    advice = "리스크가 매우 높습니다. 현금을 확보하고 소나기를 피하십시오."
 
 with left:
-    st.subheader(f"🎯 마켓 스코어: :{status_color}[{market_score}점]")
-    st.markdown(f"### **{status}**")
-    st.info(advice)
-    st.progress(market_score / 100)
-    st.table(pd.DataFrame([weights], index=["추천 비중(%)"]))
+    st.subheader("🎯 마켓 익스포저 스코어")
+    # 점수 변동률 표시 (Delta 사용)
+    st.metric(label="현재 투자 점수", value=f"{current_score}점", delta=f"{score_delta}점 (전일 대비)")
+    st.markdown(f"### 상태: :{color}[{status}]")
+    st.progress(current_score / 100)
+    st.info(f"**전문가 조언:** {advice}")
+    
+    st.markdown("#### 🛠 추천 자산 비중")
+    st.table(pd.DataFrame([weights], index=["비중(%)"]))
 
 with right:
-    st.subheader("📈 지표 추이 및 흐름")
-    chart_target = st.selectbox("그래프 선택", ["나스닥", "금리", "비트코인", "환율"])
-    st.line_chart(history[chart_target])
+    st.subheader("📈 시장 흐름 시각화")
+    target = st.radio("보고 싶은 그래프", ["나스닥", "금리", "비트코인", "환율"], horizontal=True)
+    st.line_chart(history[target], color="#29b5e8")
 
-# 6. AI 리포트 생성 섹션
-st.divider()
-st.subheader("🤖 AI 전문가의 한마디")
+# 6. AI 리포트 섹션
+st.markdown("---")
+st.subheader("🤖 AI 전문가 맞춤형 전략 리포트")
 
-def get_ai_report(m_data, score, w):
+def get_ai_report(m_data, score, delta, w):
     try:
-        # Streamlit Secrets에서 API 키 가져오기
         api_key = st.secrets["OPENAI_API_KEY"]
         client = OpenAI(api_key=api_key)
         prompt = f"""
-        당신은 공격적 투자자를 위한 자산운용가입니다. 
-        미금리:{m_data['금리']:.2f}%, 환율:{m_data['환율']:.1f}원, VIX:{m_data['VIX']:.2f}, 점수:{score}
+        당신은 공격적 투자자를 위한 자산운용가입니다.
+        현재 점수: {score}점 (전일 대비 {delta}점 변동)
+        주요지표: 금리 {m_data['금리']:.2f}%, 환율 {m_data['환율']:.1f}원, VIX {m_data['VIX']:.2f}
         추천비중: 주식 {w['주식']}%, 가상자산 {w['가상자산']}%, 현금 {w['현금']}%
-        경제지표의 변화가 투자자의 자산에 미치는 구체적인 영향과 대응 전략을 3~4문장으로 요약해줘.
+        현재 지표의 변화 흐름과 점수 변동의 의미를 포함하여 공격적 투자 전략을 3~4문장으로 요약해줘.
         """
         response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
         return response.choices.message.content
-    except Exception as e:
-        return f"AI 분석 서비스를 이용할 수 없습니다. (비밀 설정이나 API 키를 확인하세요)"
+    except:
+        return "AI 분석을 불러올 수 없습니다. 시스템 설정(API Key)을 확인해 주세요."
 
-if st.button("AI 전략 리포트 생성하기"):
-    with st.spinner("지표 간 상관관계를 분석 중입니다..."):
-        report = get_ai_report(data, market_score, weights)
+if st.button("AI 정밀 분석 리포트 생성", use_container_width=True):
+    with st.spinner("지표 간 상관관계를 정밀 분석 중..."):
+        report = get_ai_report(data, current_score, score_delta, weights)
         st.success(report)
 
-st.divider()
-st.caption("※ 본 정보는 투자 참고용이며, 최종 투자 판단은 본인에게 있습니다.")
+st.caption("※ 본 데이터는 실시간 시장 수치를 바탕으로 산출되며, 최종 투자 책임은 본인에게 있습니다.")
