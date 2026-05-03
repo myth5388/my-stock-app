@@ -4,8 +4,8 @@ import pandas as pd
 from datetime import datetime
 
 # 1. 페이지 설정
-st.set_page_config(page_title="AI 투자 전략 및 국면 분석", layout="wide")
-st.title("📈 2026 AI 투자 성과 및 포트폴리오 전략")
+st.set_page_config(page_title="AI 투자 전략 통합 대시보드", layout="wide")
+st.title("📈 2026 AI 투자 성과 및 통합 매매 전략")
 
 # 2. 데이터 로드 (2025년부터 현재까지)
 @st.cache_data
@@ -30,35 +30,29 @@ def get_market_data():
 
 market_data = get_market_data()
 
-# 3. [신규] 현 국면 변화 및 시장 영향 분석
+# 3. 사이드바: 현 국면 분석 (살려낸 부분)
 st.sidebar.header("🌐 현 시장 국면 분석")
-market_phase = "실적 장세 (AI 슈퍼사이클)"
-st.sidebar.subheader(f"현재 국면: {market_phase}")
+st.sidebar.subheader("현재: 실적 장세 (AI 슈퍼사이클)")
 st.sidebar.info("""
-**핵심 변화 및 영향:**
-1. **금리 정상화**: 3%대 금리 안착으로 유동성보다 기업 '이익'이 주가 결정.
-2. **반도체 독주**: 삼성전자 등 AI 메모리 수요 폭증으로 국내 증시 재평가.
-3. **K자 양극화**: 실적 있는 빅테크만 오르는 차별화 장세 심화.
+- **금리**: 3%대 안착 (이익 중심 장세)
+- **반도체**: 삼성전자 실적 모멘텀 강세
+- **전략**: K자 양극화에 따른 우량주 집중
 """)
 
-# 4. 투자 성과 요약 섹션
+# 4. 투자 성과 요약 (기존 유지)
 st.header("🔍 2025년 이후 자산별 성과")
 cols = st.columns(len(market_data))
-
 for i, (name, df) in enumerate(market_data.items()):
     start_price = df.iloc[0]['Close']
     current_price = df.iloc[-1]['Close']
     return_pct = ((current_price - start_price) / start_price) * 100
-    
     with cols[i]:
         st.metric(name, f"{current_price:,.2f}", f"{return_pct:+.2f}%")
         st.line_chart(df['Close'], height=150)
 
-# 5. [신규] 국면별 추천 포트폴리오 비중 조절
+# 5. 포트폴리오 비중 조절 (현 국면 반영)
 st.divider()
-st.header("⚖️ 현 국면 맞춤형 포트폴리오 비중")
-
-# 비중 조절 로직
+st.header("⚖️ 국면 맞춤형 포트폴리오 구성")
 portfolio_strategy = [
     {"자산군": "미국 지수 (QQQ/IVV)", "추천 비중": "45%", "전략": "코어(Core) 유지", "영향": "안정적 우상향"},
     {"자산군": "반도체/AI (삼성/NVDA)", "추천 비중": "30%", "전략": "비중 확대 (▲)", "영향": "실적 모멘텀 극대화"},
@@ -67,30 +61,41 @@ portfolio_strategy = [
 ]
 st.table(pd.DataFrame(portfolio_strategy))
 
-# 6. 종목별 상세 매매 가이드 (매수/목표/손절)
-st.header("🎯 종목별 실시간 매매 전략")
+# 6. 상세 매매 가이드 (비중, 목표가, 손절가 모두 복구)
+st.header("🎯 종목별 상세 실시간 전략")
 
-def calculate_strategy(name, price):
+def calculate_detailed_strategy(name, price):
+    # 자산별 세부 파라미터 복구
     if any(x in name for x in ["QQQ", "IVV"]):
-        tp_rate, sl_rate = 1.15, 0.93  # 지수: 익절 +15%, 손절 -7%
+        buy_ratio, tp_rate, sl_rate, risk = "35%", 1.15, 0.93, "낮음"
     elif any(x in name for x in ["삼성", "엔비디아"]):
-        tp_rate, sl_rate = 1.25, 0.90  # 우량주: 익절 +25%, 손절 -10%
+        buy_ratio, tp_rate, sl_rate, risk = "20%", 1.25, 0.90, "보통"
     else:
-        tp_rate, sl_rate = 1.50, 0.85  # 코인/기타: 익절 +50%, 손절 -15%
+        buy_ratio, tp_rate, sl_rate, risk = "10%", 1.50, 0.85, "높음"
         
     return {
+        "추천 비중": buy_ratio,
         "현재가": f"{price:,.2f}",
         "목표가(익절)": f"{price * tp_rate:,.2f}",
         "손절가(Stop-Loss)": f"{price * sl_rate:,.2f}",
-        "대응전략": "보유/추가매수" if price > (price * sl_rate * 1.05) else "손절 준비"
+        "리스크 등급": risk,
+        "대응상태": "안전" if price > (price * sl_rate * 1.05) else "경계"
     }
 
 strategy_list = []
 for name, df in market_data.items():
     current_price = df.iloc[-1]['Close']
-    strat = calculate_strategy(name, current_price)
+    strat = calculate_detailed_strategy(name, current_price)
     strategy_list.append({"자산명": name, **strat})
 
 st.table(pd.DataFrame(strategy_list))
 
-st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 현 시장 국면 분석 데이터 포함")
+# 7. 투자 수칙 가이드라인 (복구)
+with st.expander("💡 필독: 자산 관리 및 손절 수칙"):
+    st.write("""
+    - **분할 매수**: 추천 비중 내에서도 3회 이상 나누어 진입하여 평균 단가를 관리하세요.
+    - **손절매 준수**: 손절가 이탈 시 기계적으로 비중을 축소하여 원금을 보존하는 것이 최우선입니다.
+    - **수익 확정**: 목표가 도달 시 절반은 매도하여 수익을 챙기고, 나머지는 추세를 따라가세요.
+    """)
+
+st.caption(f"최종 업데이트: {datetime.now().strftime('%Y-%m-%d %H:%M')} | 분석 데이터 포함")
