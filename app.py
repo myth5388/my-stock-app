@@ -32,7 +32,7 @@ def get_market_all_data():
 with st.spinner('시장 데이터를 불러오는 중...'):
     data, history = get_market_all_data()
 
-# 3. 지표 상단 표시 및 영향도 설명 (Expander 추가)
+# 3. 지표 상단 표시 및 영향도 설명
 st.subheader("📍 핵심 지표 실시간 현황")
 col1, col2, col3, col4 = st.columns(4)
 
@@ -79,6 +79,7 @@ def calculate_score(tnx, krw, vix):
 
 market_score = calculate_score(data['금리'], data['환율'], data['VIX'])
 
+# 비중 결정
 if market_score >= 80:
     status, status_color = "✅ 적극 매수 구간", "green"
     weights = {"주식": 75, "가상자산": 20, "현금": 5}
@@ -92,8 +93,8 @@ else:
     weights = {"주식": 20, "가상자산": 5, "현금": 75}
     advice = "시장 환경이 매우 악화되었습니다. 현금 비중을 높여 자산을 방어하세요."
 
-# 5. 분석 화면 레이아웃
-left, right = st.columns()
+# 5. 분석 화면 레이아웃 (TypeError 해결: st.columns(2) 적용)
+left, right = st.columns(2)
 
 with left:
     st.subheader(f"🎯 마켓 스코어: :{status_color}[{market_score}점]")
@@ -113,6 +114,7 @@ st.subheader("🤖 AI 전문가의 한마디")
 
 def get_ai_report(m_data, score, w):
     try:
+        # Streamlit Secrets에서 API 키 가져오기
         api_key = st.secrets["OPENAI_API_KEY"]
         client = OpenAI(api_key=api_key)
         prompt = f"""
@@ -124,7 +126,7 @@ def get_ai_report(m_data, score, w):
         response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
         return response.choices.message.content
     except Exception as e:
-        return f"AI 분석 서비스를 이용할 수 없습니다. (환경 설정을 확인하세요)"
+        return f"AI 분석 서비스를 이용할 수 없습니다. (비밀 설정이나 API 키를 확인하세요)"
 
 if st.button("AI 전략 리포트 생성하기"):
     with st.spinner("지표 간 상관관계를 분석 중입니다..."):
