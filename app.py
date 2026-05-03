@@ -3,118 +3,147 @@ import yfinance as yf
 import pandas as pd
 from openai import OpenAI
 
-# 1. 앱 설정 및 가독성 개선
-st.set_page_config(page_title="AI 전략적 자산 배분 분석기", layout="wide")
+# 1. 앱 설정 및 가독성 개선 (글자 크기 확대 CSS)
+st.set_page_config(page_title="AI 전략적 자산배분 시스템", layout="wide")
 st.markdown("""
     <style>
     html, body, [class*="st-"] { font-size: 1.15rem; }
-    [data-testid="stMetricValue"] { font-size: 2.3rem !important; font-weight: bold; }
-    .reason-box { background-color: #f8f9fa; padding: 15px; border-radius: 8px; border-left: 5px solid #1E3A8A; margin-bottom: 10px; }
-    .delta-plus { color: #28a745; font-weight: bold; }
-    .delta-minus { color: #dc3545; font-weight: bold; }
+    h1 { font-size: 2.6rem !important; color: #1E3A8A; text-align: center; }
+    [data-testid="stMetricValue"] { font-size: 2.4rem !important; font-weight: bold; }
+    .reason-box { background-color: #f8f9fa; padding: 18px; border-radius: 10px; border-left: 6px solid #1E3A8A; margin-bottom: 15px; }
+    .stTable { font-size: 1.2rem !important; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🎯 AI 전략적 자산 배분 & 비중 변동 분석")
+st.title("🎯 AI 전략적 자산 배분 & 포트폴리오")
+st.markdown("<p style='text-align: center;'>거시지표 변동률 기반 실시간 비중 조절 시스템</p>", unsafe_allow_html=True)
 st.markdown("---")
 
-# 2. 데이터 로드
+# 2. 데이터 로드 함수 (매크로 7대 지표)
 @st.cache_data(ttl=3600)
-def get_full_data():
-    tickers = {"금리": "^TNX", "환율": "KRW=X", "VIX": "^VIX", "유가": "CL=F", "금시세": "GC=F", "채권": "TLT"}
-    data = {}
+def get_final_market_data():
+    tickers = {
+        "금리": "^TNX", "환율": "KRW=X", "VIX": "^VIX", 
+        "나스닥": "^IXIC", "유가": "CL=F", "금시세": "GC=F", "채권": "TLT"
+    }
+    current_data = {}
+    history_data = pd.DataFrame()
     for name, symbol in tickers.items():
         t_obj = yf.Ticker(symbol)
         hist = t_obj.history(period="5d")
         if not hist.empty and len(hist) >= 2:
-            data[name] = hist['Close'].iloc[-1]
-            data[f"{name}_prev"] = hist['Close'].iloc[-2]
-    return data
+            current_data[name] = hist['Close'].iloc[-1]
+            current_data[f"{name}_prev"] = hist['Close'].iloc[-2]
+            if name in ["금리", "환율", "유가", "금시세", "나스닥"]:
+                history_data[name] = t_obj.history(period="1mo")['Close']
+    return current_data, history_data
 
-with st.spinner('시장 데이터를 정밀 분석 중...'):
-    data = get_full_data()
+with st.spinner('글로벌 시장 데이터를 정밀 분석 중...'):
+    data, history = get_final_market_data()
 
-# 3. 점수 및 비중 산정 로직
-def get_portfolio_strategy(score):
-    if score >= 80:
-        return {"주식": 70, "채권": 15, "금": 5, "현금": 10}, "적극 매수 ✅", "green"
-    elif score >= 50:
-        return {"주식": 45, "채권": 25, "금": 10, "현금": 20}, "비중 중립 ⚠️", "orange"
-    else:
-        return {"주식": 20, "채권": 40, "금": 20, "현금": 20}, "위험 관리 🚨", "red"
+# 3. 전략적 자산 배분 로직 (점수대별 비중)
+def get_asset_strategy(score):
+    if score >= 80: # 적극 매수
+        return {"주식": 70, "채권": 15, "금": 5, "현금": 10}, "✅ 적극 매수", "green"
+    elif score >= 50: # 비중 중립
+        return {"주식": 45, "채권": 25, "금": 10, "현금": 20}, "⚠️ 비중 중립", "orange"
+    else: # 위험 관리
+        return {"주식": 20, "채권": 40, "금": 20, "현금": 20}, "🚨 위험 관리", "red"
 
-def calculate_score_with_reasons(d):
+# 4. 변동률 및 가중치 기반 점수 산정
+def calculate_advanced_score(d):
     score = 100
     reasons = []
-    # 환율 패널티
+    
+    # 환율 변동률 (가중치 1.5)
     krw_chg = ((d['환율'] - d['환율_prev']) / d['환율_prev']) * 100
     if krw_chg > 0.5:
-        score -= 45
-        reasons.append(f"💵 **환율 급등({krw_chg:.1f}%):** 외국인 매도세 강화 및 국장 하방 압력 증대")
-    # 금리 패널티
+        score -= (30 * 1.5)
+        reasons.append(f"💵 **환율 급변({krw_chg:.1f}%):** 외인 수급 악화 및 국장 하방 압력 증대")
+        
+    # 금리 변동폭 (가중치 1.2)
     tnx_chg = d['금리'] - d['금리_prev']
     if tnx_chg > 0.05:
-        score -= 24
-        reasons.append(f"🇺🇸 **금리 상승({tnx_chg:.2f}%p):** 채권 가격 하락 및 기술주 밸류에이션 부담 가중")
+        score -= (20 * 1.2)
+        reasons.append(f"🇺🇸 **금리 급등({tnx_chg:.2f}%p):** 할인율 상승으로 성장주 밸류에이션 타격")
+        
+    # 유가 변동률 (가중치 1.1)
+    oil_chg = ((d['유가'] - d['유가_prev']) / d['유가_prev']) * 100
+    if oil_chg > 2.0:
+        score -= (15 * 1.1)
+        reasons.append(f"🛢️ **유가 급등({oil_chg:.1f}%):** 인플레이션 재점화 및 기업 비용 부담 증가")
+
     return max(0, score), reasons
 
-# 점수 및 비중 계산
-curr_score, curr_reasons = calculate_score_with_reasons(data)
-# 전일 점수를 위한 가상 계산 (변동폭 추출용)
-prev_data_mock = {k.replace('_prev', ''): v for k, v in data.items() if '_prev' in k}
-# 이전 데이터 셋이 필요하므로 여기서는 간단히 로직만 구현
-prev_score = 100 # 기본값
-curr_weights, status, color = get_portfolio_strategy(curr_score)
-prev_weights, _, _ = get_portfolio_strategy(prev_score)
+# 최종 점수 및 비중 계산
+curr_score, curr_reasons = calculate_advanced_score(data)
+prev_score = 100 # 기본값 (변동폭 기준점)
+score_delta = curr_score - prev_score
 
-# 4. 상단 대시보드
-col_score, col_metrics = st.columns([1, 2])
-with col_score:
-    st.metric("🎯 종합 투자 스코어", f"{curr_score:.0f}점", f"{curr_score - prev_score:.0f}점")
-    st.markdown(f"### 현재 상태: :{color}[{status}]")
+curr_w, status, color = get_asset_strategy(curr_score)
+prev_w, _, _ = get_asset_strategy(prev_score)
 
-with col_metrics:
-    m1, m2, m3 = st.columns(3)
-    m1.metric("💵 환율", f"{data['환율']:,.1f}원", f"{data['환율']-data['환율_prev']:,.1f}원")
-    m2.metric("🇺🇸 금리", f"{data['금리']:.2f}%", f"{data['금리']-data['금리_prev']:.2f}%")
-    m3.metric("✨ 금시세", f"${data['금시세']:,.1f}", f"{data['금시세']-data['금시세_prev']:.1f}")
+# 5. 상단 대시보드 (핵심 지표)
+st.subheader("📍 핵심 매크로 지표 현황")
+m1, m2, m3, m4, m5 = st.columns(5)
+metrics_list = [
+    ("🇺🇸 금리", '금리', "{:.2f}%"), ("💵 환율", '환율', "{:,.1f}원"), 
+    ("📉 VIX", 'VIX', "{:.2f}"), ("🛢️ 유가", '유가', "${:.1f}"), ("✨ 금시세", '금시세', "${:,.1f}")
+]
+cols = [m1, m2, m3, m4, m5]
+for i, (label, key, fmt) in enumerate(metrics_list):
+    with cols[i]:
+        v, p = data.get(key, 0), data.get(f"{key}_prev", 0)
+        st.metric(label, fmt.format(v), fmt.format(v-p))
 
 st.divider()
 
-# 5. 전략적 자산 배분 비중 및 증감률
-st.subheader("📊 전략적 자산 배분 현황 (전일 대비 증감)")
-w1, w2, w3, w4 = st.columns(4)
+# 6. 자산 배분 비중 및 증감률 표시
+left, right = st.columns([1, 1.2])
 
-assets = [("📈 주식", "주식"), ("🏦 채권", "채권"), ("✨ 금", "금"), ("💵 현금", "현금")]
-cols = [w1, w2, w3, w4]
+with left:
+    st.subheader("🎯 통합 투자 스코어 리포트")
+    st.metric("종합 점수", f"{curr_score:.0f}점", f"{score_delta:.0f}점 (전일비)")
+    st.markdown(f"### 현재 상태: :{color}[{status}]")
+    st.progress(curr_score / 100)
+    
+    st.markdown("#### 📊 전략적 자산 배분 (전일 대비 증감)")
+    w_col1, w_col2, w_col3, w_col4 = st.columns(4)
+    assets_map = [("📈 주식", "주식"), ("🏦 채권", "채권"), ("✨ 금", "금"), ("💵 현금", "현금")]
+    w_cols = [w_col1, w_col2, w_col3, w_col4]
+    
+    for i, (label, key) in enumerate(assets_map):
+        diff = curr_w[key] - prev_w[key]
+        with w_cols[i]:
+            st.metric(label, f"{curr_w[key]}%", f"{diff:+} %p")
 
-for i, (label, key) in enumerate(assets):
-    diff = curr_weights[key] - prev_weights[key]
-    delta_text = f"{diff:+} %p"
-    with cols[i]:
-        st.metric(label, f"{curr_weights[key]}%", delta_text)
+with right:
+    st.subheader("📈 시장 흐름 시각화")
+    chart_target = st.radio("분석 그래프 선택", ["나스닥", "금리", "환율", "유가", "금시세"], horizontal=True)
+    st.line_chart(history[chart_target], color="#1E3A8A")
 
-# 6. 비중 변경 이유 및 영향 분석
-st.subheader("🧐 비중 변경 핵심 사유")
+# 7. 비중 변경 이유 및 영향 분석
+st.divider()
+st.subheader("🧐 비중 변경 핵심 사유 및 시장 영향")
 if curr_reasons:
     for reason in curr_reasons:
         st.markdown(f"<div class='reason-box'>{reason}</div>", unsafe_allow_html=True)
 else:
-    st.success("지표가 안정적입니다. 기존의 공격적 비중을 유지하십시오.")
+    st.success("지표가 매우 안정적입니다. 현재의 공격적인 전략적 자산 배분을 유지하십시오.")
 
-# 7. AI 분석 리포트
+# 8. AI 전문가 리포트 생성
 st.divider()
-if st.button("🤖 AI 정밀 전략 분석 생성", use_container_width=True):
+if st.button("🤖 AI 정밀 자산 전략 리포트 생성", use_container_width=True):
     try:
         client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         prompt = f"""
-        자산운용가로서 오늘 자산 비중이 다음과 같이 변경된 이유를 분석해줘.
-        현재 점수: {curr_score}점, 주요 변경 사유: {curr_reasons}
-        비중 변화: 주식 {curr_weights['주식']}%({curr_weights['주식']-prev_weights['주식']}%p), 
-        채권 {curr_weights['채권']}%({curr_weights['채권']-prev_weights['채권']}%p).
-        이 변화가 시장에 미치는 영향과 투자자가 취해야 할 태도를 3문장으로 요약해줘.
+        자산운용가 리포트. 종합점수:{curr_score}점, 감점사유:{curr_reasons}
+        비중 변화: 주식{curr_w['주식']}%({curr_w['주식']-prev_w['주식']}%p), 채권{curr_w['채권']}%({curr_w['채권']-prev_w['채권']}%p), 금{curr_w['금']}%({curr_w['금']-prev_w['금']}%p)
+        이 변화의 경제적 배경과 공격적 투자자가 취해야 할 구체적 행동 강령을 3문장으로 요약해줘.
         """
         res = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
         st.info(res.choices.message.content)
     except:
-        st.error("API 키 설정을 확인하세요.")
+        st.error("AI 기능을 활성화하려면 OpenAI API 키를 설정하세요.")
+
+st.caption("※ 본 데이터는 실시간 매크로 지표를 근거로 산출되었으며, 최종 투자 판단은 본인에게 있습니다.")
